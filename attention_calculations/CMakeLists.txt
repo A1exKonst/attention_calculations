@@ -1,13 +1,10 @@
 ﻿add_executable(attention_calculations 
-	"attention.h" 
-	"matmul_type.h" 
-	"random.h"
+    "src/random.cpp"
+	"src/tensor.cpp"
+	"src/attention_vectorized.cpp"
+	"src/attention.cpp"
 
-	"tensor.cpp"
-	"attention_vectorized.cpp"
-	"attention.cpp"
+	"src/attention_calculations.cpp" 
+)
 
-	"attention_calculations.cpp" 
- "random.cpp")
-
-target_include_directories(attention_calculations PRIVATE .)
+target_include_directories(attention_calculations PRIVATE "include")
