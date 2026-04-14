@@ -1,4 +1,4 @@
-На моем компьютере получены следующие результаты: (x64, supports AVX)
+На моем компьютере получены следующие результаты: (x64 Debug, supports AVX)
 
 Time naive_attention:      2523 ms
 Time tiled_attention:      2146 ms
