@@ -1,0 +1,41 @@
+﻿
+Attention(Q, K, V) = softmax(Q*K^T / sqrt(d_k)) * V
+
+X - входная матрица из векторов эмбеддингов [n, d_model]
+
+Q = X * W_Q - Query	[n, d_k]
+K = X * W_K - Key	[n, d_k]
+V = X * W_V - Value	[n, d_k]
+
+softmax(z_i) = exp(z_i) / (sum_j (exp(z_j)))
+
+Плюсы softmax:
+1. Гладкая, бесконечно дифференцируемая (для backpropagation grad)
+2. Нормирующая выходные вектора, sum(s_i) = 1; s_i in [0,1];
+
+Минусы softmax:
+1. Необходимо знать полную сумму знаменателя d_total.
+
+Решение: Flash Attention для softmax(z)
+1. Необходимо разделить все на d_total в конце всего matmul.
+2. Во время матричного умножения нужно сохранить промежуточные d_local.
+3. Во избежание переполнения суммы экспонент вводим локальные переменные:
+	3.1. m_j = local_max(z)
+	3.2. d_j = sum( exp(z) )
+	3.3. O_local = sum( exp(z_i - m_j) * V_i )
+4. При объединении блоков (m_old, d_old) -> (m_new, d_new):
+	4.1. m_max = max(m_old, m_new)
+	4.2. O_accum = O_old * exp(m_old - m_max) + O_new * exp(m_new - m_max)
+	4.3. d_accum = d_old * exp(m_old - m_max) + d_new * exp(m_new - m_max)
+5. По окончании вычисления softmax для всех блоков необходимо применить O_total, d_total:
+	5.1. Attention(Q, K, V) = O_total / d_total
+
+
+Плюсы самого Attention:
+1. До этого применялись recurrent NN:
+	1.1. h_t = f(h_(t-1), x_t)
+	1.3. Для генерации 100 токенов требуется 100 последовательных(!) вызовов RNN.
+2. Attention совершает матричное умножение, которое можно распараллелить.
+	2.1. Так как матричное умножение параллелизированно, то Attention не знает последовательность слов.
+	2.2. Для encoder : Attention
+	2.3. Для decoder : Masked Attention (softmax(z) = -inf) для Causal Mask
