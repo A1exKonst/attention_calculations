@@ -6,7 +6,7 @@
 
 #include "tensor.h"
 
-// Хелпер для суммирования всех элементов AVX-регистра в один float
+//sum(AVX-register) to scalar float register:
 inline float hsum_avx(__m256 v) {
     __m128 lo = _mm256_castps256_ps128(v);
     __m128 hi = _mm256_extractf128_ps(v, 1);
@@ -37,7 +37,7 @@ Tensor vectorized_attention(const Tensor& Q, const Tensor& K, const Tensor& V, u
                 std::vector<float> S_block(block_size);
                 float m_block = -std::numeric_limits<float>::infinity();
 
-                // 1. Вычисление S_block = (Q * K^T) * scale
+                // S_block = (Q * K^T) * scale
                 for (uint64_t j = j_start; j < j_end; ++j) {
                     __m256 sum_vec = _mm256_setzero_ps();
                     uint64_t k = 0;
@@ -47,7 +47,7 @@ Tensor vectorized_attention(const Tensor& Q, const Tensor& K, const Tensor& V, u
                         sum_vec = _mm256_fmadd_ps(q_v, k_v, sum_vec);
                     }
                     float sum = hsum_avx(sum_vec);
-                    for (; k < d; ++k) { // Хвост d
+                    for (; k < d; ++k) { // Tail of d, from vectorization
                         sum += Q.at(b, i, k) * K.at(b, j, k);
                     }
 
@@ -56,7 +56,7 @@ Tensor vectorized_attention(const Tensor& Q, const Tensor& K, const Tensor& V, u
                     m_block = std::max(m_block, score);
                 }
 
-                // 2. Online Softmax коэффициенты
+                // Online Softmax
                 float m_new = std::max(m, m_block);
                 float exp_m_diff = std::exp(m - m_new);
                 float l_block = 0.0f;
@@ -66,7 +66,7 @@ Tensor vectorized_attention(const Tensor& Q, const Tensor& K, const Tensor& V, u
                 }
                 float l_new = (l * exp_m_diff) + l_block;
 
-                // 3. Обновление O (векторизация по d)
+                // Update O_new, O_old:
                 float rescale_old = (l * exp_m_diff) / l_new;
                 float inv_l_new = 1.0f / l_new;
 
@@ -83,12 +83,12 @@ Tensor vectorized_attention(const Tensor& Q, const Tensor& K, const Tensor& V, u
                     }
 
                     __m256 o_vec = _mm256_loadu_ps(&O.at(b, i, k));
-                    // Формула: O = O_old * (l*exp/l_new) + (S_block * V_block) / l_new
+                    // O = O_old * (l*exp/l_new) + (S_block * V_block) / l_new
                     __m256 o_new = _mm256_fmadd_ps(o_vec, v_rescale_old, _mm256_mul_ps(pv_vec, v_inv_l_new));
                     _mm256_storeu_ps(&O.at(b, i, k), o_new);
                 }
 
-                // Хвост для O, если d % 8 != 0
+                // Tail || Epilogue (d % 8 != 0):
                 for (; k < d; ++k) {
                     float pv_scalar = 0.0f;
                     for (uint64_t j = 0; j < block_size; ++j) {

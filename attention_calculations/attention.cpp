@@ -94,7 +94,8 @@ Tensor tiled_attention(const Tensor& Q, const Tensor& K, const Tensor& V, uint64
 
                 uint64_t j_end = std::min(j_start + Bc, seq_len_k);
 
-                // 1. Считаем блок S = Q*K^T и находим локальный максимум
+                // S = Q*K^T
+                // m_block is a local max in a block
                 std::vector<float> S_block(j_end - j_start);
                 float m_block = -std::numeric_limits<float>::infinity();
 
@@ -107,7 +108,8 @@ Tensor tiled_attention(const Tensor& Q, const Tensor& K, const Tensor& V, uint64
                     m_block = std::max(m_block, S_block[j - j_start]);
                 }
 
-                // 2. Обновляем глобальные коэффициенты нормализации (Online Softmax)
+                // Online Softmax:
+                // Update O_new, O_old, m_new, m_old
                 float m_new = std::max(m, m_block);
                 float exp_m_diff = std::exp(m - m_new);
                 float exp_m_block_diff = std::exp(m_block - m_new);
@@ -120,13 +122,13 @@ Tensor tiled_attention(const Tensor& Q, const Tensor& K, const Tensor& V, uint64
 
                 float l_new = (l * exp_m_diff) + l_block;
 
-                // 3. Обновляем выходной вектор (перевзвешиваем старый результат и добавляем новый)
+                // Update output results according to O_new, O_old
                 for (uint64_t k = 0; k < d; ++k) {
                     float pv = 0.0f;
                     for (uint64_t j = j_start; j < j_end; ++j) {
                         pv += S_block[j - j_start] * V.at(b, j, k);
                     }
-                    // Формула: O_new = O_old * (l*exp / l_new) + (P_block * V_block) / l_new
+                    // O_new = O_old * (l*exp / l_new) + (P_block * V_block) / l_new
                     float old_val = O.at(b, i, k);
                     O.at(b, i, k) = (old_val * l * exp_m_diff + pv) / l_new;
                 }

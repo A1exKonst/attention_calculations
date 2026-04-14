@@ -28,9 +28,3 @@ Tensor vectorized_attention(
 	const Tensor& V,
 	uint64_t Bc = 32
 );
-
-Tensor flash_attention(
-	const Tensor& Q, 
-	const Tensor& K, 
-	const Tensor& V
-);

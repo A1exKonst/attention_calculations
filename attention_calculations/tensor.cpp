@@ -16,10 +16,9 @@ const float& Tensor::at(uint64_t b, uint64_t i, uint64_t j) const {
 }
 
 bool is_close(const Tensor& c1, const Tensor& c2, float epsilon) {
-    // 1. Проверка размеров
     if (c1.size() != c2.size()) return false;
 
-    // 2. Поэлементное сравнение с допуском
+    // epsilon is absolute tolerancy to float accuracy
     return std::equal(c1.begin(), c1.end(), c2.begin(),
         [epsilon](float a, float b) {
             return std::abs(a - b) < epsilon;
