@@ -6,14 +6,26 @@
 
 #include "tensor.h"
 
-//sum(AVX-register) to scalar float register:
+
+
+// documentation:
+/*
+* __m256 - 256 bit of float values (8 values 32 bit)
+* __m128 - 128 bit of float values (4 values 32 bit)
+*/
+
+
+
+//sum AVX-register and copy result to scalar float register:
 inline float hsum_avx(__m256 v) {
-    __m128 lo = _mm256_castps256_ps128(v);
-    __m128 hi = _mm256_extractf128_ps(v, 1);
-    lo = _mm_add_ps(lo, hi);
-    __m128 tmp = _mm_add_ps(lo, _mm_movehl_ps(lo, lo));
-    tmp = _mm_add_ss(tmp, _mm_shuffle_ps(tmp, tmp, 1));
-    return _mm_cvtss_f32(tmp);
+    __m128 lo = _mm256_castps256_ps128(v);                  // interpret __m256 as __m128, does not generate instructions : __m128 _mm256_castps256_ps128 (__m256 a)
+    __m128 hi = _mm256_extractf128_ps(v, 1);                // copy upper or lower half into another vector,  generates instructions, such as VEXTRACTF128 : __m128 _mm256_extractf128_ps (__m256, bool upper)
+    lo = _mm_add_ps(lo, hi);                                // elementwise addition : __m128 _mm_add_ps(__m128 A, __m128 B)
+    __m128 tmp = _mm_add_ps(lo,                             // elementwise addition
+        _mm_movehl_ps(lo, lo));                                 // copy high (2 float values) of each argument into new vector : __m128 _mm_movehl_ps(__m128 A, __m128 B)
+    tmp = _mm_add_ss(tmp,                                   // sum of a[0] and b[0] as a scalar operation
+        _mm_shuffle_ps(tmp, tmp, 1));                           // shuffle 00'00'00'01 -> [F1, F0, F0, F0]
+    return _mm_cvtss_f32(tmp);                              // convert into scalar singe precision f32
 }
 
 Tensor vectorized_attention(const Tensor& Q, const Tensor& K, const Tensor& V, uint64_t Bc) {
@@ -23,7 +35,7 @@ Tensor vectorized_attention(const Tensor& Q, const Tensor& K, const Tensor& V, u
     uint64_t d = Q.dim;
     float scale = 1.0f / std::sqrt(static_cast<float>(d));
 
-    Tensor O{ std::vector<float>(batch_size * seq_len_q * d, 0.0f), batch_size, seq_len_q, d };
+    Tensor output{ std::vector<float>(batch_size * seq_len_q * d, 0.0f), batch_size, seq_len_q, d };
 
     for (uint64_t b = 0; b < batch_size; ++b) {
         for (uint64_t i = 0; i < seq_len_q; ++i) {
@@ -39,10 +51,10 @@ Tensor vectorized_attention(const Tensor& Q, const Tensor& K, const Tensor& V, u
 
                 // S_block = (Q * K^T) * scale
                 for (uint64_t j = j_start; j < j_end; ++j) {
-                    __m256 sum_vec = _mm256_setzero_ps();
+                    __m256 sum_vec = _mm256_setzero_ps();                   // set zeros into a given __m256 = 8 values of float32
                     uint64_t k = 0;
                     for (; k + 7 < d; k += 8) {
-                        __m256 q_v = _mm256_loadu_ps(&Q.at(b, i, k));
+                        __m256 q_v = _mm256_loadu_ps(&Q.at(b, i, k));       // load unaligned packed single precision (f32)
                         __m256 k_v = _mm256_loadu_ps(&K.at(b, j, k));
                         sum_vec = _mm256_fmadd_ps(q_v, k_v, sum_vec);
                     }
@@ -82,10 +94,10 @@ Tensor vectorized_attention(const Tensor& Q, const Tensor& K, const Tensor& V, u
                         pv_vec = _mm256_fmadd_ps(s_val, v_vec, pv_vec);
                     }
 
-                    __m256 o_vec = _mm256_loadu_ps(&O.at(b, i, k));
+                    __m256 o_vec = _mm256_loadu_ps(&output.at(b, i, k));
                     // O = O_old * (l*exp/l_new) + (S_block * V_block) / l_new
                     __m256 o_new = _mm256_fmadd_ps(o_vec, v_rescale_old, _mm256_mul_ps(pv_vec, v_inv_l_new));
-                    _mm256_storeu_ps(&O.at(b, i, k), o_new);
+                    _mm256_storeu_ps(&output.at(b, i, k), o_new);
                 }
 
                 // Tail || Epilogue (d % 8 != 0):
@@ -94,8 +106,8 @@ Tensor vectorized_attention(const Tensor& Q, const Tensor& K, const Tensor& V, u
                     for (uint64_t j = 0; j < block_size; ++j) {
                         pv_scalar += S_block[j] * V.at(b, j_start + j, k);
                     }
-                    float old_val = O.at(b, i, k);
-                    O.at(b, i, k) = (old_val * rescale_old) + (pv_scalar * inv_l_new);
+                    float old_val = output.at(b, i, k);
+                    output.at(b, i, k) = (old_val * rescale_old) + (pv_scalar * inv_l_new);
                 }
 
                 m = m_new;
@@ -103,5 +115,5 @@ Tensor vectorized_attention(const Tensor& Q, const Tensor& K, const Tensor& V, u
             }
         }
     }
-    return O;
+    return output;
 }

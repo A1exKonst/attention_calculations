@@ -40,33 +40,39 @@ Tensor naive_attention(const Tensor& Q, const Tensor& K, const Tensor& V) {
 
      Tensor output{ std::vector<float>(batch_size * seq_len_q * dv, 0.0f), batch_size, seq_len_q, dv };
 
+     // output[b, i, j] = sum_l1(sum_l2(Q[b,i,l2]*K[b,l1,l2]*V[b,l1,j]))
+     
+
+     // qk_matmul[l1] = sum_l2(Q[b,i,l2]*K[b,l1,l2])
+     // output[b, i, j] = sum_l1(qk_matmul[l1]*V[b,l1,j])
+
      for (uint64_t b = 0; b < batch_size; ++b) {
          for (uint64_t i = 0; i < seq_len_q; ++i) {
-             std::vector<float> scores(seq_len_k);
+             std::vector<float> qk_matmul(seq_len_k);
 
              // MatMul(Q, K^T) & Scale
-             for (uint64_t j = 0; j < seq_len_k; ++j) {
+             for (uint64_t l1 = 0; l1 < seq_len_k; ++l1) {
                  float sum = 0.0f;
-                 for (uint64_t l = 0; l < dk; ++l) {
-                     sum += Q.at(b, i, l) * K.at(b, j, l);
+                 for (uint64_t l2 = 0; l2 < dk; ++l2) {
+                     sum += Q.at(b, i, l2) * K.at(b, l1, l2);
                  }
-                 scores[j] = sum * scale;
+                 qk_matmul[l1] = sum * scale;
              }
 
              // Softmax
-             float max_score = *std::max_element(scores.begin(), scores.end());
+             float max_score = *std::max_element(qk_matmul.begin(), qk_matmul.end());
              float exp_sum = 0.0f;
-             for (float& s : scores) {
+             for (float& s : qk_matmul) {
                  s = std::exp(s - max_score);
                  exp_sum += s;
              }
-             for (float& s : scores) s /= exp_sum;
+             for (float& s : qk_matmul) s /= exp_sum;
 
-             // MatMul(Scores, V)
+             // MatMul(Q@K^T, V)
              for (uint64_t j = 0; j < dv; ++j) {
                  float res = 0.0f;
-                 for (uint64_t l = 0; l < seq_len_k; ++l) {
-                     res += scores[l] * V.at(b, l, j);
+                 for (uint64_t l1 = 0; l1 < seq_len_k; ++l1) {
+                     res += qk_matmul[l1] * V.at(b, l1, j);
                  }
                  output.at(b, i, j) = res;
              }
@@ -79,10 +85,17 @@ Tensor tiled_attention(const Tensor& Q, const Tensor& K, const Tensor& V, uint64
     uint64_t batch_size = Q.batch_size;
     uint64_t seq_len_q = Q.seq_len;
     uint64_t seq_len_k = K.seq_len;
+    uint64_t dk = Q.dim;
     uint64_t d = Q.dim; // dk = dv
     float scale = 1.0f / std::sqrt(static_cast<float>(d));
 
-    Tensor O{ std::vector<float>(batch_size * seq_len_q * d, 0.0f), batch_size, seq_len_q, d };
+    Tensor output{ std::vector<float>(batch_size * seq_len_q * d, 0.0f), batch_size, seq_len_q, d };
+
+    // output[b, i, j] = sum_l1(sum_l2(Q[b,i,l2]*K[b,l1,l2]*V[b,l1,j]))
+
+
+    // qk_matmul[l1] = sum_l2(Q[b,i,l2]*K[b,l1,l2])
+    // output[b, i, j] = sum_l1(qk_matmul[l1]*V[b,l1,j])
 
     for (uint64_t b = 0; b < batch_size; ++b) {
         for (uint64_t i = 0; i < seq_len_q; ++i) {
@@ -129,8 +142,8 @@ Tensor tiled_attention(const Tensor& Q, const Tensor& K, const Tensor& V, uint64
                         pv += S_block[j - j_start] * V.at(b, j, k);
                     }
                     // O_new = O_old * (l*exp / l_new) + (P_block * V_block) / l_new
-                    float old_val = O.at(b, i, k);
-                    O.at(b, i, k) = (old_val * l * exp_m_diff + pv) / l_new;
+                    float old_val = output.at(b, i, k);
+                    output.at(b, i, k) = (old_val * l * exp_m_diff + pv) / l_new;
                 }
 
                 m = m_new;
@@ -138,5 +151,5 @@ Tensor tiled_attention(const Tensor& Q, const Tensor& K, const Tensor& V, uint64
             }
         }
     }
-    return O;
+    return output;
 }
