@@ -21,6 +21,11 @@ public:
         uint64_t batch_size_, uint64_t seq_len_, uint64_t dim_) : data(std::move(data_)), 
         batch_size(batch_size_), seq_len(seq_len_), dim(dim_) {}
 
+    Tensor(uint64_t batch_size_, uint64_t seq_len_, uint64_t dim_) :
+        batch_size(batch_size_), seq_len(seq_len_), dim(dim_) {
+        data.assign(batch_size * seq_len * dim, 0);
+    }
+
     Tensor(const Tensor&) = default;
 
     Tensor(Tensor&&) = default;
@@ -30,6 +35,14 @@ public:
     float& at(uint64_t b, uint64_t i, uint64_t j);
 
     const float& at(uint64_t b, uint64_t i, uint64_t j) const;
+
+    float& operator()(uint64_t b, uint64_t i, uint64_t j) {
+        return data[b * (seq_len * dim) + i * dim + j];
+    };
+
+    const float& operator()(uint64_t b, uint64_t i, uint64_t j) const {
+        return data[b * (seq_len * dim) + i * dim + j];
+    };
 
     auto begin() { return data.begin(); };
 

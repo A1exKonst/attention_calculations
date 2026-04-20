@@ -15,6 +15,12 @@ Tensor naive_attention(
 	const Tensor& V
 );
 
+Tensor cache_friendly_attention(
+	const Tensor& Q,
+	const Tensor& K,
+	const Tensor& V
+);
+
 Tensor tiled_attention(
 	const Tensor& Q, 
 	const Tensor& K, 

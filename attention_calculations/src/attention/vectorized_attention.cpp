@@ -3,6 +3,7 @@
 #include <vector>
 #include <algorithm>
 #include <limits>
+#include <stdexcept>
 
 #include "tensor.h"
 
@@ -29,6 +30,16 @@ inline float hsum_avx(__m256 v) {
 }
 
 Tensor vectorized_attention(const Tensor& Q, const Tensor& K, const Tensor& V, uint64_t Bc) {
+    if (Q.batch_size != K.batch_size ||
+        Q.dim != K.dim) {
+        throw std::runtime_error("Incompatible Q and K");
+    }
+
+    if (K.batch_size != V.batch_size ||
+        K.seq_len != V.seq_len) {
+        throw std::runtime_error("Incompatible K and V");
+    }
+
     uint64_t batch_size = Q.batch_size;
     uint64_t seq_len_q = Q.seq_len;
     uint64_t seq_len_k = K.seq_len;
@@ -64,7 +75,7 @@ Tensor vectorized_attention(const Tensor& Q, const Tensor& K, const Tensor& V, u
                     for (; k < d; ++k) {
                         sum += Q.at(b, i, k) * K.at(b, j, k);
                     }
-
+                    // sum = (Q*K^T)[i,j]
                     float score = sum * scale;
                     S_block[j - j_start] = score;
                     m_block = std::max(m_block, score);
