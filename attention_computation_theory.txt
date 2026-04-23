@@ -1,0 +1,101 @@
+
+Attention(Q, K, V) = softmax(Q*K^T / sqrt(d_k)) * V
+
+Q = X * W_Q - Query	[seq_len, d_k]
+K = X * W_K - Key	[seq_len, d_k]
+V = X * W_V - Value	[seq_len, d_v] (d_k == d_v == d)
+
+S = Q*K.T		[seq_len, seq_len]
+P = softmax(S)	[seq_len, seq_len]
+O = P*V			[seq_len, d_v]		- результат Attention.
+
+softmax(S)_ij = exp(S_ij) / (sum_k (exp(S_ik)))
+
+
+
+
+
+Процесс вычисления Attention на xPU:
+
+1. В кэш загружаются блоки матриц:
+	Q[i_block : i_block + Br][0 : d]
+	K[j_block : j_block + Bc][0 : d]
+	V[j_block : j_block + Bc][0 : d]
+	O[i_block : i_block + Br][0 : d] - матрица для записи результата.
+	Примечание : Столбцы всех матриц [0 : d] загружаются целиком, так как softmax - это построчная операция.
+2. Вычисляется блок матриц S и P:
+	S[i_block : i_block + Br][j_block : j_block + Bc]
+	P[i_block : i_block + Br][j_block : j_block + Bc]
+	l[i_block : i_block + Br]	- служебный вектор для текущих сумм экспонент.
+	m[i_block : i_block + Br]	- служебный вектор для текущих максимумов строк.
+3. Обновляется блок матрицы O:
+	O[i_block : i_block + Br][0 : d]
+4. Происходит смена j_block при фиксированном i_block:
+	Q_block, O_block - фиксирован.
+	K_block, V_block - сменяются.
+	При классическом блочном матричном умножении результаты O суммировались бы относительно j_block.
+	Однако у нас есть нелинейная функция softmax.
+	Поэтому мы храним служебные вектора l и m, для корректного масштабирования.
+
+
+
+
+
+
+Процесс вычисления Attention на xPU (подробно):
+
+1. В кэш загружаются блоки матриц:
+	Q[i_block : i_block + Br][0 : d]
+	K[j_block : j_block + Bc][0 : d]
+	V[j_block : j_block + Bc][0 : d]
+	O[i_block : i_block + Br][0 : d] - матрица для записи результата.
+2. Вычисляется блок матриц S и P:
+	S = Q*K.T
+	P = softmax(S)										- не материализуется в кэше отдельно, а перезаписывается поверх S.
+	S[i_block : i_block + Br][j_block : j_block + Bc]	- находится в кэше.
+	P[i_block : i_block + Br][j_block : j_block + Bc]	- находится в кэше.
+	l_acc[i_block : i_block + Br]	- служебный вектор для текущих знаменателей строк матрицы P.
+	m_acc[i_block : i_block + Br]	- служебный вектор для текущих максимумов строк матрицы P.
+3. Обновляется блок матрицы O:
+	O = P*V
+	O_cur[i_block : i_block + Br][0 : d] - блок матрицы O, посчитанный для нового j_block'. Находится в кэше.
+	O_acc[i_block : i_block + Br][0 : d] - блок матрицы O, аккумулированный со всех прошлых j_block.
+
+	Корректный rescale при сложении блоков O_cur и O_acc:
+	m_cur[i_block] = max_j(S[i_block][j_block])
+	m_new[i_block] = max(m_cur, m_acc)
+	P[i_block][j_block] = exp(S[i_block][j_block] - m_new[i_block])
+	l_cur[i_block] = sum_j(P[i_block][j_block])
+	l_new[i_block] = l_acc[i_block] * exp(m_acc - m_new) + l_cur[i_block]
+	O_new[i_block] = (O_acc[i_block] * (l_acc[i_block] * exp(m_acc - m_new) + P[i_block][j_block] @ V[j_block]) / l_new[i_block]
+
+4. Происходит смена j_block при фиксированном i_block.
+	Q_block, O_block - фиксирован.
+	K_block, V_block - сменяются.
+5. Происходит смена i_block.
+	Q_block и O_block полностью сменяются.
+	Начинается расчет полностью новой области O_block.
+
+
+
+
+Существует неоптимальность:
+Мы много раз умножаем и делим на l_acc, хотя можем это сделать только в конце.
+Данная версия используется в FlashAttention-2.
+
+Обновим пункт 3:
+3. Обновляется блок матрицы O:
+	O = P*V
+	O_cur[i_block : i_block + Br][0 : d] - блок матрицы O (неразделенной на l), посчитанный для нового j_block'. Находится в кэше.
+	O_acc[i_block : i_block + Br][0 : d] - блок матрицы O (неразделенной на l), аккумулированный со всех прошлых j_block.
+
+	Корректный rescale при сложении блоков O_cur и O_acc:
+	m_cur[i_block] = max_j(S[i_block][j_block])
+	m_new[i_block] = max(m_acc, m_cur)
+	P[i_block][j_block] = exp(S[i_block][j_block] - m_new[i_block])
+	l_cur[i_block] = sum_j(P_cur[i_block][j_block])
+	l_new[i_block] = l_acc[i_block] * exp(m_acc - m_new) + l_cur[i_block]
+	O_new[i_block] = O_acc[i_block] * exp(m_acc - m_new) + (P[i_block][j_block] @ V[j_block])
+
+4. После всех блоков по j, перед изменением блока по i (изменение области записи O[i_block]):
+	O[i_block] = O[i_block] / l_acc[i_block]

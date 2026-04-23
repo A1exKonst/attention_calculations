@@ -22,11 +22,11 @@ Tensor tiled_attention(const Tensor& Q, const Tensor& K, const Tensor& V, uint64
     uint64_t batch_size = Q.batch_size;
     uint64_t seq_len_q = Q.seq_len;
     uint64_t seq_len_k = K.seq_len;
-    uint64_t dk = Q.dim;
-    uint64_t dv = V.dim; // dk = dv
-    float scale = 1.0f / std::sqrt(static_cast<float>(dv));
+    uint64_t dim_k = Q.dim;
+    uint64_t dim_v = V.dim; // dk = dv
+    float scale = 1.0f / std::sqrt(static_cast<float>(dim_v));
 
-    Tensor output{ batch_size, seq_len_q, dv };
+    Tensor output{ batch_size, seq_len_q, dim_v };
 
     // output[b, i, j] = sum_l1(sum_l2(Q[b,i,l2]*K[b,l1,l2]*V[b,l1,j]))
 
@@ -60,7 +60,7 @@ Tensor tiled_attention(const Tensor& Q, const Tensor& K, const Tensor& V, uint64
                     // l1 = j - j_start, as S_block index is from zero
                     // qk_matmul[l1] = sum_l2(Q[b,i,l2]*K[b,l1,l2])
                     float sum = 0.0f;
-                    for (uint64_t k = 0; k < dv; ++k) {
+                    for (uint64_t k = 0; k < dim_v; ++k) {
                         sum += Q(b, i, k) * K(b, j, k);
                     }
 
@@ -96,7 +96,7 @@ Tensor tiled_attention(const Tensor& Q, const Tensor& K, const Tensor& V, uint64
                 float scale_old = l * exp_m_diff / l_new;
                 float scale_new = 1.0f / l_new;
 
-                for (uint64_t k = 0; k < dv; ++k) {
+                for (uint64_t k = 0; k < dim_v; ++k) {
                     float pv = 0.0f;
                     for (uint64_t j = j_start; j < j_end; ++j) {
                         pv += S_block[j - j_start] * V(b, j, k);
