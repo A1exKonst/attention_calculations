@@ -21,6 +21,8 @@ Tensor attention_with_matmul(
         break;
     case MatMulType::TILING:
         return tiled_attention(Q, K, V, 32);
+    case MatMulType::FLASH_ATTENTION:
+        return flash_attention(Q, K, V, 32, 32);
     case MatMulType::SIMD:
         return vectorized_attention(Q, K, V, 32);
         break;

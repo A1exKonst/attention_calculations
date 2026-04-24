@@ -5,12 +5,11 @@
 	"src/attention/naive_attention.cpp"
 	"src/attention/vectorized_attention.cpp"
 	"src/attention/cache_friendly_attention.cpp"
+	"src/attention/tiled_attention.cpp"
+	"src/attention/flash_attention.cpp"
 	"src/attention/attention.cpp"
 
-	#"src/attention/cache_friendly_tiled_attention.cpp"
-	"src/attention/tiled_attention.cpp"
-
-	"src/attention_calculations.cpp" 
+	"src/main.cpp" 
 )
 
 target_include_directories(attention_calculations PRIVATE "include")

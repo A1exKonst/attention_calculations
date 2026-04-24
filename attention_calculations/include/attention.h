@@ -21,6 +21,14 @@ Tensor cache_friendly_attention(
 	const Tensor& V
 );
 
+Tensor flash_attention(
+	const Tensor& Q,
+	const Tensor& K,
+	const Tensor& V,
+	const size_t block_size_rows = 32,
+	const size_t block_size_columns = 32
+);
+
 Tensor tiled_attention(
 	const Tensor& Q, 
 	const Tensor& K, 

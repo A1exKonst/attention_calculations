@@ -8,9 +8,9 @@
 
 int main() {
 
-    Tensor q{ generate_tensor(1, 100, 101, 102) };
-    Tensor k{ generate_tensor(2, 100, 101, 102) };
-    Tensor v{ generate_tensor(3, 100, 101, 102) };
+    Tensor q{ generate_tensor(1, 50, 101, 102) };
+    Tensor k{ generate_tensor(2, 50, 101, 102) };
+    Tensor v{ generate_tensor(3, 50, 101, 102) };
 
     auto start = std::chrono::steady_clock::now();
     Tensor naive = attention_with_matmul(q, k, v, MatMulType::NAIVE);
@@ -31,6 +31,12 @@ int main() {
     std::cout << "Time tiled_attention:          " << elapsed.count() << " ms" << std::endl;
 
     start = std::chrono::steady_clock::now();
+    Tensor flash = attention_with_matmul(q, k, v, MatMulType::FLASH_ATTENTION);
+    end = std::chrono::steady_clock::now();
+    elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    std::cout << "Time flash_attention:          " << elapsed.count() << " ms" << std::endl;
+
+    start = std::chrono::steady_clock::now();
     Tensor vectorized = attention_with_matmul(q, k, v, MatMulType::SIMD);
     end = std::chrono::steady_clock::now();
     elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
@@ -40,10 +46,9 @@ int main() {
 
     std::cout << "is close(naive, cached):     " << is_close(naive, cached) << std::endl;
     std::cout << "is close(naive, tiled):      " << is_close(naive, tiled) << std::endl;
+    std::cout << "is close(naive, flash):      " << is_close(naive, flash) << std::endl;
     std::cout << "is close(naive, vectorized): " << is_close(naive, vectorized) << std::endl;
-    std::cout << "is close(cached, tiled):     " << is_close(cached, tiled) << std::endl;
-    std::cout << "is close(cached, vectorized):" << is_close(cached, vectorized) << std::endl;
-    std::cout << "is close(tiled, vectorized): " << is_close(tiled, vectorized) << std::endl;
+    
 
 	return 0;
 }
